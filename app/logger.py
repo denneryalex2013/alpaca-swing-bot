@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
@@ -79,8 +78,7 @@ def _send_discord():
     if not webhook_url:
         return
 
-    log_url = "https://github.com/xx-r0ger-xx-fintech/alpaca-swing-bot/tree/main/storage/logs"
-    embeds  = []
+    embeds = []
 
     # ── Embed 1: Account Snapshot (blue) ──────────────────────────────────────
     pos_lines = []
@@ -190,7 +188,6 @@ def _send_discord():
             {"name": "Results",    "value": summary_value,      "inline": False},
             {"name": "Next Scan",  "value": _next_scan_str(),   "inline": False},
         ],
-        "footer": {"text": f"Full log: {log_url}"},
     })
 
     try:
@@ -209,51 +206,6 @@ def _send_discord():
         log(f"Discord notify failed (HTTP {e.code}): {e.read().decode()}")
     except urllib.error.URLError as e:
         log(f"Discord notify failed: {e.reason}")
-
-
-def _push_to_github():
-    token = os.getenv("GITHUB_TOKEN", "")
-    if not token or not _log_buffer:
-        return
-
-    repo    = "xx-r0ger-xx-fintech/alpaca-swing-bot"
-    path    = f"storage/logs/{_today()}.md"
-    api_url = f"https://api.github.com/repos/{repo}/contents/{path}"
-
-    content = "\n".join(_log_buffer)
-    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type":  "application/json",
-        "Accept":        "application/vnd.github+json",
-    }
-
-    sha = None
-    try:
-        req = urllib.request.Request(api_url, headers=headers)
-        with urllib.request.urlopen(req) as resp:
-            sha = json.loads(resp.read()).get("sha")
-    except (urllib.error.HTTPError, urllib.error.URLError):
-        pass
-
-    body = {"message": f"Trade log {_today()}", "content": encoded}
-    if sha:
-        body["sha"] = sha
-
-    try:
-        req = urllib.request.Request(
-            api_url,
-            data=json.dumps(body).encode(),
-            headers=headers,
-            method="PUT",
-        )
-        with urllib.request.urlopen(req):
-            log(f"Trade log pushed to GitHub: storage/logs/{_today()}.md")
-    except urllib.error.HTTPError as e:
-        log(f"GitHub push failed (HTTP {e.code}): {e.read().decode()}")
-    except urllib.error.URLError as e:
-        log(f"GitHub push failed: {e.reason}")
 
 
 # ── Public logging helpers ─────────────────────────────────────────────────────
@@ -337,7 +289,6 @@ def log_scan_end():
     _write_obsidian("\n---\n")
     _buffer("\n---\n")
     try:
-        _push_to_github()
         _send_discord()
     finally:
         _log_buffer.clear()
