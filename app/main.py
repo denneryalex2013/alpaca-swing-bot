@@ -115,6 +115,11 @@ def run_scan(trading_client, data_client):
                 if signal != "SELL":
                     continue
 
+                position_value = float(position.market_value)
+                if position_value < config.MIN_TRADE_USD:
+                    logger.log_skipped(symbol, f"Dust position (${position_value:.2f}) — skipping sell")
+                    continue
+
                 # Cancel open GTC stop-loss orders before closing the position
                 open_orders = trading_client.get_orders(
                     GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol])
@@ -145,6 +150,11 @@ def run_scan(trading_client, data_client):
             # Guard: already holding (evaluated above — skip silently)
             if symbol in open_positions:
                 continue
+
+            # Guard: trade size below minimum
+            if trade_size < config.MIN_TRADE_USD:
+                logger.log_skipped(symbol, f"Trade size ${trade_size:.2f} below minimum ${config.MIN_TRADE_USD:.2f}")
+                break
 
             # Guard: insufficient cash
             if cash < trade_size:
@@ -212,7 +222,11 @@ def run_scan(trading_client, data_client):
                 cash -= trade_size
 
             except Exception as e:
-                logger.log_error(f"{symbol}: {e}")
+                msg = str(e)
+                if "notional" in msg.lower() or "minimum" in msg.lower():
+                    logger.log_error(f"{symbol}: Order rejected — {msg}")
+                else:
+                    logger.log_error(f"{symbol}: {e}")
 
     except Exception as e:
         logger.log_error(f"Scan aborted: {e}")

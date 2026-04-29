@@ -10,6 +10,7 @@ WATCHLIST = os.getenv(
 TRADE_SIZE_PCT = float(os.getenv("TRADE_SIZE_PCT", "0.20"))   # 20% of account equity
 MAX_TRADE_SIZE = float(os.getenv("MAX_TRADE_SIZE", "500"))     # hard cap per trade
 MAX_POSITIONS  = int(os.getenv("MAX_POSITIONS", "3"))          # max concurrent positions
+MIN_TRADE_USD  = float(os.getenv("MIN_TRADE_USD", "10"))       # Alpaca notional minimum floor
 
 # Risk management
 TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.10"))  # 10% take profit
