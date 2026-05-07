@@ -50,12 +50,13 @@ def calculate_signals(df: pd.DataFrame, config: dict) -> tuple:
     if ema_bullish and rsi_bullish and above_vwap:
         return "BUY", f"{ema_label} | {rsi_label} | {vwap_label}"
 
-    # --- SELL: all three confirm bearish ---
-    ema_bearish  = ema_short < ema_long * 1.005
-    rsi_bearish  = rsi < config["RSI_SELL_THRESHOLD"]
-    below_vwap   = price < vwap
+    # --- SELL: 2-of-3 bearish conditions ---
+    ema_bearish   = ema_short < ema_long * 1.005
+    rsi_bearish   = rsi < config["RSI_SELL_THRESHOLD"]
+    below_vwap    = price < vwap
+    bearish_count = sum([ema_bearish, rsi_bearish, below_vwap])
 
-    if ema_bearish and rsi_bearish and below_vwap:
+    if bearish_count >= 2:
         return "SELL", f"{ema_label} | {rsi_label} | {vwap_label}"
 
     # --- No signal — explain which conditions failed ---

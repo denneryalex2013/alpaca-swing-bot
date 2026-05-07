@@ -7,27 +7,30 @@ import pytz
 
 ET = pytz.timezone("America/New_York")
 
+_EQUITY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage", "equity_history.json")
+
 # ── Internal state ─────────────────────────────────────────────────────────────
 
-_log_buffer:    list[str] = []
-_buy_lines:     list[str] = []
-_sell_lines:    list[str] = []
-_signal_lines:  list[str] = []
-_skip_lines:    list[str] = []
-_error_lines:   list[str] = []
+_log_buffer:      list[str]  = []
+_buy_lines:       list[str]  = []
+_sell_lines:      list[str]  = []
+_signal_lines:    list[str]  = []   # actual BUY/SELL signals only
+_no_signal_lines: list[str]  = []   # assets that reached strategy but had no signal
+_skip_lines:      list[str]  = []
+_error_lines:     list[str]  = []
 
-_current_equity:     float = 0.0
-_current_cash:       float = 0.0
-_current_trade_size: float = 0.0
+_current_equity:     float      = 0.0
+_prev_equity:        float      = 0.0
+_current_cash:       float      = 0.0
+_current_trade_size: float      = 0.0
 _open_positions:     list[dict] = []   # [{symbol, qty, entry, price, pl, plpc}]
-_watchlist_size:     int = 0
+_watchlist_size:     int        = 0
 
 # Discord embed colors
 _BLUE   = 3447003   # #3498DB
 _GREEN  = 3066993   # #2ECC71
 _RED    = 15158332  # #E74C3C
 _YELLOW = 15844367  # #F1C40F
-_PURPLE = 10181046  # #9B59B6
 
 
 def _now() -> str:
@@ -39,7 +42,6 @@ def _today() -> str:
 
 
 def log(msg: str):
-    """Print timestamped message to stdout — captured by DigitalOcean logs."""
     print(f"[{_now()}] {msg}", flush=True)
 
 
@@ -65,10 +67,27 @@ def _write_obsidian(line: str):
         f.write(line + "\n")
 
 
+def _load_prev_equity() -> float:
+    try:
+        with open(_EQUITY_FILE, "r") as f:
+            return float(json.load(f).get("equity", 0))
+    except Exception:
+        return 0.0
+
+
+def _save_equity(equity: float):
+    try:
+        os.makedirs(os.path.dirname(_EQUITY_FILE), exist_ok=True)
+        with open(_EQUITY_FILE, "w") as f:
+            json.dump({"date": _today(), "equity": equity}, f)
+    except Exception as e:
+        log(f"Failed to save equity history: {e}")
+
+
 def _next_scan_str() -> str:
-    now  = datetime.now(ET)
+    now      = datetime.now(ET)
     next_day = now.date() + timedelta(days=1)
-    while next_day.weekday() >= 5:   # skip Saturday (5) and Sunday (6)
+    while next_day.weekday() >= 5:
         next_day += timedelta(days=1)
     return f"{next_day.strftime('%A, %b')} {next_day.day} at 9:35 AM ET"
 
@@ -78,116 +97,120 @@ def _send_discord():
     if not webhook_url:
         return
 
-    embeds = []
+    embeds        = []
+    trades_placed = len(_buy_lines) + len(_sell_lines)
+    max_pos       = os.getenv("MAX_POSITIONS", "3")
 
-    # ── Embed 1: Account Snapshot (blue) ──────────────────────────────────────
-    pos_lines = []
-    for p in _open_positions:
-        pl_sign = "+" if p["pl"] >= 0 else ""
-        pos_lines.append(
-            f"**{p['symbol']}** | Qty: {p['qty']} | "
-            f"Entry: ${p['entry']:.2f} | Price: ${p['price']:.2f} | "
-            f"P&L: {pl_sign}${p['pl']:.2f} ({pl_sign}{p['plpc']:.1f}%)"
-        )
+    # ── Embed 1: Status ───────────────────────────────────────────────────────
+    if _error_lines:
+        status_color = _RED
+        status_text  = f"Scan completed with {len(_error_lines)} error(s)"
+    elif trades_placed > 0:
+        status_color = _GREEN
+        status_text  = f"{trades_placed} trade(s) executed"
+    elif _signal_lines:
+        status_color = _YELLOW
+        status_text  = "No trades — signals evaluated, none triggered"
+    else:
+        status_color = _BLUE
+        status_text  = "Quiet scan — no signals found"
 
-    max_pos = os.getenv("MAX_POSITIONS", "3")
+    if _prev_equity and _prev_equity > 0:
+        delta     = _current_equity - _prev_equity
+        delta_pct = (delta / _prev_equity) * 100
+        sign      = "+" if delta >= 0 else ""
+        equity_str = f"**${_current_equity:,.2f}** ({sign}${delta:,.2f} / {sign}{delta_pct:.1f}% vs yesterday)"
+    else:
+        equity_str = f"**${_current_equity:,.2f}**"
+
+    if _open_positions:
+        pos_parts = []
+        for p in _open_positions:
+            pl_sign = "+" if p["pl"] >= 0 else ""
+            pos_parts.append(f"**{p['symbol']}** {pl_sign}${p['pl']:.2f} ({pl_sign}{p['plpc']:.1f}%)")
+        holdings_str = ", ".join(pos_parts) + f"  ({len(_open_positions)}/{max_pos} slots)"
+    else:
+        holdings_str = f"None (0/{max_pos} slots)"
+
     embeds.append({
         "title": f"Alpaca Swing Bot — {_today()}",
-        "color": _BLUE,
+        "color": status_color,
         "fields": [
-            {
-                "name": "Portfolio",
-                "value": (
-                    f"Equity: **${_current_equity:,.2f}** | "
-                    f"Cash: **${_current_cash:,.2f}** | "
-                    f"Trade size: **${_current_trade_size:,.2f}**"
-                ),
-                "inline": False,
-            },
-            {
-                "name": f"Open Positions ({len(_open_positions)}/{max_pos})",
-                "value": "\n".join(pos_lines) if pos_lines else "No open positions",
-                "inline": False,
-            },
+            {"name": "Activity",  "value": status_text,                               "inline": False},
+            {"name": "Equity",    "value": equity_str,                                "inline": False},
+            {"name": "Cash",      "value": f"**${_current_cash:,.2f}** available",    "inline": False},
+            {"name": "Positions", "value": holdings_str,                              "inline": False},
+            {"name": "Next Scan", "value": _next_scan_str(),                          "inline": False},
         ],
     })
 
-    # ── Embed 2a: Buy Orders (green) ──────────────────────────────────────────
+    # ── Embed 2: Bought (green) ───────────────────────────────────────────────
     if _buy_lines:
         embeds.append({
-            "title": "Buy Orders",
+            "title": "Bought",
             "color": _GREEN,
             "fields": [{
-                "name": f"{len(_buy_lines)} order(s) executed",
-                "value": "\n".join(_buy_lines),
+                "name":   f"{len(_buy_lines)} order(s) executed",
+                "value":  "\n".join(_buy_lines),
                 "inline": False,
             }],
         })
 
-    # ── Embed 2b: Sell Orders (red) ───────────────────────────────────────────
+    # ── Embed 3: Sold (red) ───────────────────────────────────────────────────
     if _sell_lines:
         embeds.append({
-            "title": "Sell Orders",
+            "title": "Sold",
             "color": _RED,
             "fields": [{
-                "name": f"{len(_sell_lines)} order(s) executed",
-                "value": "\n".join(_sell_lines),
+                "name":   f"{len(_sell_lines)} order(s) executed",
+                "value":  "\n".join(_sell_lines),
                 "inline": False,
             }],
         })
 
-    # ── Embed 3: Signals Evaluated (yellow) ───────────────────────────────────
+    # ── Embed 4: Scan Detail ──────────────────────────────────────────────────
+    detail_fields = []
+
     if _signal_lines:
-        embeds.append({
-            "title": "Signals Evaluated",
-            "color": _YELLOW,
-            "fields": [{
-                "name": f"{len(_signal_lines)} symbol(s) reached strategy",
-                "value": "\n".join(_signal_lines),
-                "inline": False,
-            }],
+        detail_fields.append({
+            "name":   "Signals found",
+            "value":  "\n".join(_signal_lines),
+            "inline": False,
         })
 
-    # ── Embed 4: Pre-filter Skips (purple) ────────────────────────────────────
+    if _no_signal_lines:
+        asset_names = [line.split(" ")[1] for line in _no_signal_lines if len(line.split(" ")) > 1]
+        detail_fields.append({
+            "name":   f"No signal ({len(_no_signal_lines)})",
+            "value":  ", ".join(asset_names),
+            "inline": False,
+        })
+
     if _skip_lines:
-        embeds.append({
-            "title": "Pre-filter Skips",
-            "color": _PURPLE,
-            "fields": [{
-                "name": f"{len(_skip_lines)} symbol(s) filtered before strategy",
-                "value": "\n".join(_skip_lines),
-                "inline": False,
-            }],
+        detail_fields.append({
+            "name":   f"Blocked ({len(_skip_lines)})",
+            "value":  "\n".join(_skip_lines),
+            "inline": False,
         })
 
-    # ── Embed 5: Errors (red) — only if any ──────────────────────────────────
     if _error_lines:
-        embeds.append({
-            "title": "Errors",
-            "color": _RED,
-            "fields": [{
-                "name": f"{len(_error_lines)} error(s) during scan",
-                "value": "\n".join(_error_lines),
-                "inline": False,
-            }],
+        detail_fields.append({
+            "name":   f"Errors ({len(_error_lines)})",
+            "value":  "\n".join(_error_lines),
+            "inline": False,
         })
 
-    # ── Embed 6: Summary (blue) — always present ──────────────────────────────
-    trades_placed = len(_buy_lines) + len(_sell_lines)
-    summary_value = "\n".join([
-        f"Symbols scanned: **{_watchlist_size}**",
-        f"Trades placed: **{trades_placed}**",
-        f"Signals evaluated: **{len(_signal_lines)}**",
-        f"Pre-filtered: **{len(_skip_lines)}**",
-    ])
+    if not detail_fields:
+        detail_fields.append({
+            "name":   "Detail",
+            "value":  f"{_watchlist_size} symbols scanned — no signals",
+            "inline": False,
+        })
 
     embeds.append({
-        "title": "Scan Summary",
-        "color": _BLUE,
-        "fields": [
-            {"name": "Results",    "value": summary_value,      "inline": False},
-            {"name": "Next Scan",  "value": _next_scan_str(),   "inline": False},
-        ],
+        "title":  "Scan Detail",
+        "color":  _YELLOW,
+        "fields": detail_fields,
     })
 
     try:
@@ -211,7 +234,8 @@ def _send_discord():
 # ── Public logging helpers ─────────────────────────────────────────────────────
 
 def log_scan_start(equity: float, cash: float, trade_size: float, positions: dict, watchlist_size: int):
-    global _current_equity, _current_cash, _current_trade_size, _open_positions, _watchlist_size
+    global _current_equity, _prev_equity, _current_cash, _current_trade_size, _open_positions, _watchlist_size
+    _prev_equity        = _load_prev_equity()
     _current_equity     = equity
     _current_cash       = cash
     _current_trade_size = trade_size
@@ -225,7 +249,7 @@ def log_scan_start(equity: float, cash: float, trade_size: float, positions: dic
             "entry":  float(p.avg_entry_price),
             "price":  float(p.current_price),
             "pl":     float(p.unrealized_pl),
-            "plpc":   float(p.unrealized_plpc) * 100,  # decimal → percentage
+            "plpc":   float(p.unrealized_plpc) * 100,
         })
 
     msg = (
@@ -247,7 +271,10 @@ def log_decision(symbol: str, signal, reason: str, price: float):
     log(msg)
     _write_obsidian(f"- {msg}")
     _buffer(f"- {msg}")
-    _signal_lines.append(msg)
+    if signal in ("BUY", "SELL"):
+        _signal_lines.append(msg)
+    else:
+        _no_signal_lines.append(msg)
 
 
 def log_order(symbol: str, action: str, price: float, qty: float, tp: float = 0.0, sl: float = 0.0):
@@ -290,10 +317,12 @@ def log_scan_end():
     _buffer("\n---\n")
     try:
         _send_discord()
+        _save_equity(_current_equity)
     finally:
         _log_buffer.clear()
         _buy_lines.clear()
         _sell_lines.clear()
         _signal_lines.clear()
+        _no_signal_lines.clear()
         _skip_lines.clear()
         _error_lines.clear()

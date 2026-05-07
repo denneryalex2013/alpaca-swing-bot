@@ -20,8 +20,8 @@ STOP_LOSS_PCT   = float(os.getenv("STOP_LOSS_PCT",   "0.04"))  # 4% stop loss
 EMA_SHORT          = int(os.getenv("EMA_SHORT",           "20"))
 EMA_LONG           = int(os.getenv("EMA_LONG",            "50"))
 RSI_PERIOD         = int(os.getenv("RSI_PERIOD",          "14"))
-RSI_BUY_THRESHOLD  = float(os.getenv("RSI_BUY_THRESHOLD", "55"))
-RSI_SELL_THRESHOLD = float(os.getenv("RSI_SELL_THRESHOLD","45"))
+RSI_BUY_THRESHOLD  = float(os.getenv("RSI_BUY_THRESHOLD",  "55"))
+RSI_SELL_THRESHOLD = float(os.getenv("RSI_SELL_THRESHOLD", "50"))
 
 # How many calendar days back to fetch for indicator calculation
 # 120 days ≈ 84 trading days — comfortable headroom above the default EMA_LONG of 50
