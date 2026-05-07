@@ -1,6 +1,6 @@
 # Alpaca Swing Bot
 
-A lightweight Python swing trading bot that runs on DigitalOcean App Platform. Uses a confluence of technical indicators to scan a stock watchlist every morning and automatically place fractional orders via the Alpaca API.
+A lightweight Python swing trading bot that runs on DigitalOcean App Platform. Scans a stock watchlist every weekday morning, applies a market pre-filter, then uses a confluence of technical indicators to automatically place fractional orders via the Alpaca API.
 
 ---
 
@@ -8,25 +8,47 @@ A lightweight Python swing trading bot that runs on DigitalOcean App Platform. U
 
 Every weekday at **9:35 AM ET**, the bot:
 
-1. Pulls 90 days of daily OHLCV data for each symbol in the watchlist
-2. Runs the signal strategy — requires all three indicators to align before trading
-3. Places fractional market orders for any BUY signals, then attaches a GTC stop-loss as a safety net
-4. Exits positions via SELL signal (trend reversal) — profits are taken when the strategy says the trend has turned, not at a fixed percentage
-5. Logs every decision to DigitalOcean logs, GitHub, and Discord
+1. Fetches account equity, cash, and open positions from Alpaca
+2. Runs the **market pre-filter** — checks VIX and SPY trend before evaluating any symbols
+3. Evaluates exit signals for all open positions first (sells before buying anything new)
+4. Scans the watchlist for BUY signals on symbols not currently held
+5. Places fractional market orders for any qualifying BUY signals, attaches a GTC stop-loss
+6. Sends a Discord summary and saves equity history for daily delta tracking
+
+---
+
+## Market Pre-Filter
+
+Before any BUY signal is acted on, two market-wide conditions are checked using free Yahoo Finance data (no API key required). **Sells are never blocked** — you can always exit a position regardless of market conditions.
+
+| Condition | Rule |
+|---|---|
+| VIX > 30 | Block all buys — market is stressed |
+| SPY below 50-day MA | Block all buys — broad market in downtrend |
+
+Both checks fail open — if Yahoo Finance is unavailable, trading continues normally.
 
 ---
 
 ## Signal Strategy
 
-Three indicators must confirm before a trade is placed:
+**BUY** requires all three indicators to confirm bullish:
 
-| Indicator | Period | Buy Condition |
+| Indicator | Period | Condition |
 |---|---|---|
-| **EMA crossover** | 20 / 50 | Short EMA > Long EMA (0.5% tolerance) |
-| **RSI** | 14 | RSI > 55 |
-| **VWAP** | Rolling 20-day | Price > VWAP |
+| EMA crossover | 20 / 50 | Short EMA > Long EMA (0.5% tolerance) |
+| RSI | 14 | RSI > 55 |
+| VWAP | Rolling 20-day | Price > VWAP |
 
-Every skipped trade includes a reason explaining which condition failed.
+**SELL** requires any two of three indicators to confirm bearish:
+
+| Indicator | Period | Condition |
+|---|---|---|
+| EMA crossover | 20 / 50 | Short EMA < Long EMA (0.5% tolerance) |
+| RSI | 14 | RSI < 50 |
+| VWAP | Rolling 20-day | Price < VWAP |
+
+Exits are signal-driven rather than fixed take-profit targets — stock trends can run further than a fixed percentage allows.
 
 ---
 
@@ -35,31 +57,34 @@ Every skipped trade includes a reason explaining which condition failed.
 | Setting | Default |
 |---|---|
 | Trade size | 20% of account equity |
-| Max trade size | $500 |
+| Max trade size | $500 hard cap |
 | Max open positions | 3 |
-| Stop loss | -4% GTC safety net (primary exit is signal-based) |
+| Stop loss | 4% GTC safety net (primary exit is signal-based) |
 
 Position sizing compounds automatically — as the account grows, trade size grows with it. Fractional shares mean the full trade size is deployed regardless of share price.
 
 ---
 
-## Logging
+## Discord Notifications
 
-After every scan a Discord notification is always sent, regardless of whether trades were placed. It uses multiple color-coded embeds:
+A notification is sent after every scan regardless of whether trades were placed. The status embed color tells you at a glance what happened:
 
-| Embed | Color | Content |
-|---|---|---|
-| Account Snapshot | Blue | Equity, cash, trade size, open positions with unrealized P&L |
-| Buy Orders | Green | Any buy orders executed this scan |
-| Sell Orders | Red | Any sell orders executed this scan |
-| Signals Evaluated | Yellow | Every symbol that reached strategy evaluation with reason |
-| Pre-filter Skips | Purple | Symbols skipped before strategy (max positions, no cash, etc.) |
-| Scan Summary | Blue | Total counts + next scan time |
+| Color | Meaning |
+|---|---|
+| Green | Trades executed |
+| Yellow | Signals evaluated but no trades placed |
+| Blue | Quiet scan — no signals found |
+| Red | Scan completed with errors |
 
-Pre-filter and trade embeds are omitted when empty. The summary is always present.
+Embeds sent each scan:
 
-- **DigitalOcean logs** — full detail, real-time
-- **GitHub** — daily markdown summary committed to `storage/logs/YYYY-MM-DD.md`
+| Embed | Content |
+|---|---|
+| **Status** | Activity summary, equity with daily delta, open positions with P&L, next scan time |
+| **Bought** *(if any)* | Buy orders executed with fill price, qty, stop-loss |
+| **Sold** *(if any)* | Sell orders executed |
+| **Market Context** | VIX level, SPY price vs 50-day MA |
+| **Scan Detail** | Actual BUY/SELL signals found, no-signal asset count, blocked symbols, errors |
 
 ---
 
@@ -68,14 +93,14 @@ Pre-filter and trade embeds are omitted when empty. The summary is always presen
 ```
 alpaca-swing-bot/
 ├── app/
-│   ├── config.py      # All settings, configurable via env vars
-│   ├── strategy.py    # EMA + RSI + VWAP signal logic
-│   ├── logger.py      # DO logs, GitHub commit, Discord webhook
-│   └── main.py        # Orchestration and daily scan loop
-├── storage/
-│   └── logs/          # Daily trade log markdown files
-├── deploy.py          # Automated DigitalOcean deployment script
-├── test_notify.py     # Send a test Discord notification with mock data
+│   ├── config.py       # All settings — configurable via env vars
+│   ├── prefilter.py    # Market pre-filter (VIX, SPY MA50)
+│   ├── strategy.py     # EMA + RSI + VWAP signal logic
+│   ├── logger.py       # Console, Obsidian, and Discord logging
+│   └── main.py         # Orchestration and daily scan loop
+├── storage/            # Persistent equity history for daily delta
+├── deploy.py           # Automated DigitalOcean deployment script
+├── test_notify.py      # Send a test Discord notification with mock data
 ├── Dockerfile
 └── requirements.txt
 ```
@@ -93,7 +118,7 @@ alpaca-swing-bot/
 python deploy.py
 ```
 
-The script creates the DO app, sets all secrets, and tails the deployment automatically.
+The script creates or updates the DO app, injects all secrets, and tails the deployment until live.
 
 ### Manual (DigitalOcean App Platform)
 
@@ -106,28 +131,29 @@ The script creates the DO app, sets all secrets, and tails the deployment automa
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `ALPACA_API_KEY` | Yes | Alpaca live trading API key |
-| `ALPACA_API_SECRET` | Yes | Alpaca live trading API secret |
-| `GITHUB_TOKEN` | Yes | GitHub token with `repo` scope (for log commits) |
-| `DISCORD_WEBHOOK_URL` | Yes | Discord channel webhook URL |
-| `WATCHLIST` | No | Comma-separated symbols (default: AAPL,MSFT,NVDA,TSLA,AMZN,META,AMD,GOOGL,SPY,QQQ) |
-| `TRADE_SIZE_PCT` | No | Fraction of equity per trade (default: 0.20) |
-| `MAX_TRADE_SIZE` | No | Hard cap per trade in dollars (default: 500) |
-| `MAX_POSITIONS` | No | Max concurrent positions (default: 3) |
-| `STOP_LOSS_PCT` | No | Stop loss percentage for GTC safety net (default: 0.04) |
-| `EMA_SHORT` | No | Short EMA period (default: 20) |
-| `EMA_LONG` | No | Long EMA period (default: 50) |
-| `RSI_BUY_THRESHOLD` | No | RSI buy threshold (default: 55) |
-| `RSI_SELL_THRESHOLD` | No | RSI sell threshold (default: 45) |
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `ALPACA_API_KEY` | Yes | — | Alpaca live trading API key |
+| `ALPACA_API_SECRET` | Yes | — | Alpaca live trading API secret |
+| `DISCORD_WEBHOOK_URL` | Yes | — | Discord channel webhook URL |
+| `DO_TOKEN` | Deploy only | — | DigitalOcean API token (used by deploy.py) |
+| `GITHUB_TOKEN` | Deploy only | — | GitHub token with repo scope (used by deploy.py) |
+| `WATCHLIST` | No | AAPL,MSFT,NVDA,TSLA,AMZN,META,AMD,GOOGL,SPY,QQQ | Comma-separated symbols |
+| `TRADE_SIZE_PCT` | No | 0.20 | Fraction of equity per trade |
+| `MAX_TRADE_SIZE` | No | 500 | Hard cap per trade in dollars |
+| `MAX_POSITIONS` | No | 3 | Max concurrent positions |
+| `STOP_LOSS_PCT` | No | 0.04 | Stop loss percentage for GTC safety net |
+| `VIX_BUY_BLOCK_THRESHOLD` | No | 30.0 | Block buys when VIX exceeds this |
+| `EMA_SHORT` | No | 20 | Short EMA period |
+| `EMA_LONG` | No | 50 | Long EMA period |
+| `RSI_BUY_THRESHOLD` | No | 55 | RSI threshold to confirm a buy |
+| `RSI_SELL_THRESHOLD` | No | 50 | RSI threshold to confirm a sell |
 
 ---
 
 ## Requirements
 
 - Python 3.12+
-- Alpaca account (live trading enabled)
+- Alpaca account with live trading enabled
 - DigitalOcean account
 - Discord server with a webhook configured
-- GitHub personal access token (repo scope)
