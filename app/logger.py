@@ -25,6 +25,7 @@ _current_cash:       float      = 0.0
 _current_trade_size: float      = 0.0
 _open_positions:     list[dict] = []   # [{symbol, qty, entry, price, pl, plpc}]
 _watchlist_size:     int        = 0
+_market_ctx:         dict       = {}
 
 # Discord embed colors
 _BLUE   = 3447003   # #3498DB
@@ -168,7 +169,27 @@ def _send_discord():
             }],
         })
 
-    # ── Embed 4: Scan Detail ──────────────────────────────────────────────────
+    # ── Embed 4: Market Context ───────────────────────────────────────────────
+    vix       = _market_ctx.get("vix",       0.0)
+    spy_price = _market_ctx.get("spy_price", 0.0)
+    spy_ma50  = _market_ctx.get("spy_ma50",  0.0)
+    vix_str   = f"**{vix:.1f}**" if _market_ctx.get("vix_ok") else "Unavailable"
+    if _market_ctx.get("spy_ok"):
+        direction = "above" if spy_price >= spy_ma50 else "below"
+        spy_str   = f"**${spy_price:.2f}** ({direction} MA50 ${spy_ma50:.2f})"
+    else:
+        spy_str   = "Unavailable"
+
+    embeds.append({
+        "title": "Market Context",
+        "color": _BLUE,
+        "fields": [
+            {"name": "VIX",          "value": vix_str, "inline": True},
+            {"name": "SPY vs MA50",  "value": spy_str, "inline": True},
+        ],
+    })
+
+    # ── Embed 5: Scan Detail ──────────────────────────────────────────────────
     detail_fields = []
 
     if _signal_lines:
@@ -233,13 +254,14 @@ def _send_discord():
 
 # ── Public logging helpers ─────────────────────────────────────────────────────
 
-def log_scan_start(equity: float, cash: float, trade_size: float, positions: dict, watchlist_size: int):
-    global _current_equity, _prev_equity, _current_cash, _current_trade_size, _open_positions, _watchlist_size
+def log_scan_start(equity: float, cash: float, trade_size: float, positions: dict, watchlist_size: int, market_ctx: dict = None):
+    global _current_equity, _prev_equity, _current_cash, _current_trade_size, _open_positions, _watchlist_size, _market_ctx
     _prev_equity        = _load_prev_equity()
     _current_equity     = equity
     _current_cash       = cash
     _current_trade_size = trade_size
     _watchlist_size     = watchlist_size
+    _market_ctx         = market_ctx or {}
 
     _open_positions = []
     for symbol, p in positions.items():

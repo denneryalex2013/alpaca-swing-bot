@@ -19,6 +19,7 @@ from alpaca.data.enums import DataFeed
 from app import config
 from app.strategy import calculate_signals
 from app import logger
+from app import prefilter
 
 ET = pytz.timezone("America/New_York")
 
@@ -94,7 +95,8 @@ def run_scan(trading_client, data_client):
         open_positions = {p.symbol: p for p in trading_client.get_all_positions()}
         trade_size     = min(equity * config.TRADE_SIZE_PCT, config.MAX_TRADE_SIZE)
 
-        logger.log_scan_start(equity, cash, trade_size, open_positions, len(config.WATCHLIST))
+        market_ctx = prefilter.get_market_context()
+        logger.log_scan_start(equity, cash, trade_size, open_positions, len(config.WATCHLIST), market_ctx)
 
         # ── Phase 1: Exit checks for open positions ────────────────────────────
         exited = set()
@@ -175,6 +177,11 @@ def run_scan(trading_client, data_client):
                     logger.log_decision(symbol, signal, reason, current_price)
 
                 if signal != "BUY":
+                    continue
+
+                allow_buy, pf_reason = prefilter.should_allow_buy(symbol, market_ctx)
+                if not allow_buy:
+                    logger.log_skipped(symbol, pf_reason)
                     continue
 
                 # Submit fractional market buy using notional (dollar amount)

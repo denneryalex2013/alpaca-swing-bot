@@ -27,6 +27,9 @@ RSI_SELL_THRESHOLD = float(os.getenv("RSI_SELL_THRESHOLD", "50"))
 # 120 days ≈ 84 trading days — comfortable headroom above the default EMA_LONG of 50
 BARS_TO_FETCH = int(os.getenv("BARS_TO_FETCH", "120"))
 
+# Pre-filter thresholds
+VIX_BUY_BLOCK_THRESHOLD = float(os.getenv("VIX_BUY_BLOCK_THRESHOLD", "30.0"))  # block buys when VIX exceeds this
+
 # Obsidian vault path — set locally to write daily trade notes directly to vault
 # Leave blank on DigitalOcean (DO logs are the source of truth there)
 OBSIDIAN_VAULT_PATH = os.getenv("OBSIDIAN_VAULT_PATH", "")
