@@ -20,6 +20,7 @@ from app import config
 from app.strategy import calculate_signals
 from app import logger
 from app import prefilter
+import monthly_report
 
 ET = pytz.timezone("America/New_York")
 
@@ -248,17 +249,27 @@ def main():
     logger.log("Alpaca Swing Bot started")
     trading_client, data_client = get_clients()
 
-    scanned_today  = False
-    last_scan_date = None
+    scanned_today          = False
+    last_scan_date         = None
+    monthly_reported_month = None
 
     while True:
         now   = datetime.datetime.now(ET)
         today = now.date()
 
-        # Reset flag at midnight
+        # Reset daily scan flag at midnight
         if last_scan_date != today:
             scanned_today  = False
             last_scan_date = today
+
+        # Monthly report: fires on the 1st of each month after 8 AM ET
+        if today.day == 1 and now.hour >= 8 and monthly_reported_month != today.month:
+            try:
+                webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
+                monthly_report.send(trading_client, webhook_url)
+            except Exception as e:
+                logger.log_error(f"Monthly report failed: {e}")
+            monthly_reported_month = today.month
 
         if not scanned_today and is_scan_window():
             run_scan(trading_client, data_client)
