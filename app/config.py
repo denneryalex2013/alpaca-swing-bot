@@ -31,5 +31,4 @@ BARS_TO_FETCH = int(os.getenv("BARS_TO_FETCH", "120"))
 VIX_BUY_BLOCK_THRESHOLD = float(os.getenv("VIX_BUY_BLOCK_THRESHOLD", "30.0"))  # block buys when VIX exceeds this
 
 # Obsidian vault path — set locally to write daily trade notes directly to vault
-# Leave blank on DigitalOcean (DO logs are the source of truth there)
 OBSIDIAN_VAULT_PATH = os.getenv("OBSIDIAN_VAULT_PATH", "")

@@ -1,6 +1,6 @@
 # Alpaca Swing Bot
 
-A lightweight Python swing trading bot that runs on DigitalOcean App Platform. Scans a stock watchlist every weekday morning, applies a market pre-filter, then uses a confluence of technical indicators to automatically place fractional orders via the Alpaca API.
+A lightweight Python swing trading bot. Scans a stock watchlist every weekday morning, applies a market pre-filter, then uses a confluence of technical indicators to automatically place fractional orders via the Alpaca API.
 
 ---
 
@@ -99,7 +99,6 @@ alpaca-swing-bot/
 │   ├── logger.py       # Console, Obsidian, and Discord logging
 │   └── main.py         # Orchestration and daily scan loop
 ├── storage/            # Persistent equity history for daily delta
-├── deploy.py           # Automated DigitalOcean deployment script
 ├── test_notify.py      # Send a test Discord notification with mock data
 ├── Dockerfile
 └── requirements.txt
@@ -109,23 +108,13 @@ alpaca-swing-bot/
 
 ## Deployment
 
-### Automated (recommended)
-
-1. Copy `.env.example` to `.env` and fill in your credentials
-2. Run:
+Run via Docker:
 
 ```bash
-python deploy.py
+cp .env.example .env  # fill in credentials
+docker build -t alpaca-swing-bot .
+docker run --env-file .env alpaca-swing-bot
 ```
-
-The script creates or updates the DO app, injects all secrets, and tails the deployment until live.
-
-### Manual (DigitalOcean App Platform)
-
-1. Connect this repo to DigitalOcean App Platform
-2. Set component type to **Worker**
-3. Set run command to `python -m app.main`
-4. Add environment variables (see below)
 
 ---
 
@@ -136,8 +125,6 @@ The script creates or updates the DO app, injects all secrets, and tails the dep
 | `ALPACA_API_KEY` | Yes | — | Alpaca live trading API key |
 | `ALPACA_API_SECRET` | Yes | — | Alpaca live trading API secret |
 | `DISCORD_WEBHOOK_URL` | Yes | — | Discord channel webhook URL |
-| `DO_TOKEN` | Deploy only | — | DigitalOcean API token (used by deploy.py) |
-| `GITHUB_TOKEN` | Deploy only | — | GitHub token with repo scope (used by deploy.py) |
 | `WATCHLIST` | No | AAPL,MSFT,NVDA,TSLA,AMZN,META,AMD,GOOGL,SPY,QQQ | Comma-separated symbols |
 | `TRADE_SIZE_PCT` | No | 0.20 | Fraction of equity per trade |
 | `MAX_TRADE_SIZE` | No | 500 | Hard cap per trade in dollars |
@@ -155,5 +142,4 @@ The script creates or updates the DO app, injects all secrets, and tails the dep
 
 - Python 3.12+
 - Alpaca account with live trading enabled
-- DigitalOcean account
 - Discord server with a webhook configured
