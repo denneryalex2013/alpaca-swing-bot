@@ -20,8 +20,9 @@ from app import config
 from app.strategy import calculate_signals
 from app import logger
 from app import prefilter
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..'))
 import monthly_report
-
 ET = pytz.timezone("America/New_York")
 
 STRATEGY_CONFIG = {
