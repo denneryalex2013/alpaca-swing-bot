@@ -40,7 +40,8 @@ def get_clients():
     api_secret = os.getenv("ALPACA_API_SECRET")
     if not api_key or not api_secret:
         raise ValueError("ALPACA_API_KEY and ALPACA_API_SECRET must be set")
-    trading = TradingClient(api_key, api_secret, paper=False)
+paper = "paper-api.alpaca.markets" in os.getenv("ALPACA_BASE_URL", "")
+trading = TradingClient(api_key, api_secret, paper=paper)
     data    = StockHistoricalDataClient(api_key, api_secret)
     return trading, data
 
